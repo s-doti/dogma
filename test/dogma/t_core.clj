@@ -3,7 +3,9 @@
             [dogma.core :refer :all]
             [clojure.core.async :as async]
             [org.httpkit.client :as http]
-            [taoensso.timbre :as timbre]))
+            [taoensso.timbre :as timbre]
+            [domain-name-utils.core :refer [domain-parent has-suffix?]]
+            [ip-utils.core :refer [ip4?]]))
 
 ; logging util
 (defn gen-timbre-test-config [log-level]
@@ -274,130 +276,137 @@
                {:node "n1/123" :attribute (->ref :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {}}
                nil
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
-                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :modified 1 :version 1}} :type :mutate-flow}
+                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:type :notify-event-flow, :args {:node "n1/123", :attribute :n1/->n2, :event :boot, :event-data {[:id] "n1/123"}}}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :modified 1 :version 1}} :type :mutate-flow}
+                 )
 
                ;new link, *:1 ref, with meta-fn, no meta
                "new link, *:1 ref, with meta-fn, no meta"
                {:node "n1/123" :attribute (->with-meta (->ref :n2/->n1 :id :n1/->n2) #(do {:source %})) :target-node "n2/123" :target-attribute :n2/->n1 :meta {}}
                nil
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
+                 ;{:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {:source "n1/123"} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
-                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :modified 1 :version 1}} :type :mutate-flow}
+                 {:args {:attribute :n2/->n1 :meta {:source "n1/123"} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:type :notify-event-flow, :args {:node "n1/123", :attribute :n1/->n2, :event :boot, :event-data {[:id] "n1/123"}}}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :modified 1 :version 1}} :type :mutate-flow}
+                 ;{:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}}
+                 )
 
                ;new link, *:1 ref, no meta-fn, with meta
                "new link, *:1 ref, no meta-fn, with meta"
                {:node "n1/123" :attribute (->ref :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {:me "ta"}}
                nil
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
+                 ;{:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
-                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :modified 1 :version 1}} :type :mutate-flow}
+                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:type :notify-event-flow, :args {:node "n1/123", :attribute :n1/->n2, :event :boot, :event-data {[:id] "n1/123"}}}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :modified 1 :version 1}} :type :mutate-flow}
+                 ;{:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}}
+                 )
 
                ;existing link, *:1 ref, no meta-fn, no meta
                "existing link, *:1 ref, no meta-fn, no meta"
                {:node "n1/123" :attribute (->ref :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {}}
                {:created 0 :data {:created 0 :id "n2/123" :modified 0 :symmetric-attribute :n2/->n1} :modified 0 :version 0}
-               '({:args {:attribute :n2/->n1 :event :visit :event-data nil :node "n2/123"} :type :notify-event-flow})
+               '({:args {:attribute :n2/->n1 :event :visit :event-data {[:meta] {} [:ref] {:created 0 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} [:source] "n1/123"} :node "n2/123"} :type :notify-event-flow})
 
                ;existing link with meta, *:1 ref, no meta-fn, with meta
                "existing link with meta, *:1 ref, no meta-fn, with meta"
                {:node "n1/123" :attribute (->ref :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {:me "ta"}}
                {:created 0 :data {:created 0 :id "n2/123" :me "ta" :modified 0 :symmetric-attribute :n2/->n1} :modified 0 :version 0}
-               '({:args {:attribute :n2/->n1 :event :visit :event-data nil :node "n2/123"} :type :notify-event-flow})
+               '({:args {:attribute :n2/->n1 :event :visit :event-data {[:meta] {:me "ta"} [:ref] {:created 0 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} [:source] "n1/123"} :node "n2/123"} :type :notify-event-flow})
 
                ;existing link, *:1 ref, no meta-fn, with meta
                "existing link, *:1 ref, no meta-fn, with meta"
                {:node "n1/123" :attribute (->ref :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {:me "ta"}}
                {:created 0 :data {:created 0 :id "n2/123" :modified 0 :symmetric-attribute :n2/->n1} :modified 0 :version 0}
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
+                 ;{:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
+                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:args {:attribute :n1/->n2 :new-value {:created 0 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value {:created 0 :data {:created 0 :id "n2/123" :modified 0 :symmetric-attribute :n2/->n1} :modified 0 :version 0} :value {:created 0 :data {:created 0 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :modified 1 :version 0}} :type :mutate-flow}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+                 ;{:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}}
+                 )
 
                ;existing other link, *:1 ref, no meta-fn, with meta
                "existing other link, *:1 ref, no meta-fn, with meta"
                {:node "n1/123" :attribute (->ref :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {:me "ta"}}
                {:created 0 :data {:created 0 :id "n2/999" :modified 0 :symmetric-attribute :n2/->n1} :modified 0 :version 0}
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
+                 ;{:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
+                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value {:created 0 :data {:created 0 :id "n2/999" :modified 0 :symmetric-attribute :n2/->n1} :modified 0 :version 0} :value {:created 0 :data {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :modified 1 :version 0}} :type :mutate-flow}
                  {:args {:attribute :n2/->n1 :node "n2/999" :target-attribute :n1/->n2 :target-node "n1/123"} :type :unlink-flow}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+                 ;{:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}}
+                 )
 
                ;new link, *:* ref, no meta-fn, no meta
                "new link, *:* ref, no meta-fn, no meta"
                {:node "n1/123" :attribute (->refs :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {}}
                nil
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
+                 ;{:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
-                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {["n2/123" :n2/->n1] {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1}} :modified 1 :version 1}} :type :mutate-flow}
+                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:type :notify-event-flow, :args {:node "n1/123", :attribute :n1/->n2, :event :boot, :event-data {[:id] "n1/123"}}}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {["n2/123" :n2/->n1] {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1}} :modified 1 :version 1}} :type :mutate-flow}
+                 ;{:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}}
+                 )
 
                ;new link, *:* ref, with meta-fn, no meta
                "new link, *:* ref, with meta-fn, no meta"
                {:node "n1/123" :attribute (->with-meta (->refs :n2/->n1 :id :n1/->n2) #(do {:source %})) :target-node "n2/123" :target-attribute :n2/->n1 :meta {}}
                nil
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
+                 ;{:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {:source "n1/123"} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
-                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {["n2/123" :n2/->n1] {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1}} :modified 1 :version 1}} :type :mutate-flow}
+                 {:args {:attribute :n2/->n1 :meta {:source "n1/123"} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:type :notify-event-flow, :args {:node "n1/123", :attribute :n1/->n2, :event :boot, :event-data {[:id] "n1/123"}}}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {["n2/123" :n2/->n1] {:created 1 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1}} :modified 1 :version 1}} :type :mutate-flow}
+                 ;{:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}}
+                 )
 
                ;new link, *:* ref, no meta-fn, with meta
                "new link, *:* ref, no meta-fn, with meta"
                {:node "n1/123" :attribute (->refs :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {:me "ta"}}
                nil
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
+                 ;{:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
-                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {["n2/123" :n2/->n1] {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1}} :modified 1 :version 1}} :type :mutate-flow}
+                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:type :notify-event-flow, :args {:node "n1/123", :attribute :n1/->n2, :event :boot, :event-data {[:id] "n1/123"}}}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+                 {:args {:attribute :n1/->n2 :new-value {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value nil :value {:created 1 :data {["n2/123" :n2/->n1] {:created 1 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1}} :modified 1 :version 1}} :type :mutate-flow}
+                 ;{:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}}
+                 )
 
                ;existing link, *:* ref, no meta-fn, no meta
                "existing link, *:* ref, no meta-fn, no meta"
                {:node "n1/123" :attribute (->refs :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {}}
                {:created 0 :data {["n2/123" :n2/->n1] {:created 0 :id "n2/123" :modified 0 :symmetric-attribute :n2/->n1}} :modified 0 :version 0}
-               '({:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+               '({:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data {[:meta] {} [:ref] {:created 0 :id "n2/123" :modified 1 :symmetric-attribute :n2/->n1} [:source] "n1/123"}}})
 
                ;existing link with meta, *:* ref, no meta-fn, with meta
                "existing link with meta, *:* ref, no meta-fn, with meta"
                {:node "n1/123" :attribute (->refs :n2/->n1 :id :n1/->n2) :target-node "n2/123" :target-attribute :n2/->n1 :meta {:me "ta"}}
                {:created 0 :data {["n2/123" :n2/->n1] {:created 0 :id "n2/123" :me "ta" :modified 0 :symmetric-attribute :n2/->n1}} :modified 0 :version 0}
-               '({:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})
+               '({:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data {[:meta] {:me "ta"} [:ref] {:created 0 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} [:source] "n1/123"}}})
 
                ;existing link, *:* ref, no meta-fn, with meta
                "existing link, *:* ref, no meta-fn, with meta"
                {:node "n1/123" :attribute (->refs :n2/->n1 :id :n1/->n2) #_{:id :n1/->n2 :type :refs} :target-node "n2/123" :target-attribute :n2/->n1 :meta {:me "ta"}}
                {:created 0 :data {["n2/123" :n2/->n1] {:created 0 :id "n2/123" :modified 0 :symmetric-attribute :n2/->n1}} :modified 0 :version 0}
                '({:args {:attribute :n1/->n2 :event :modified :event-data {:attribute :n1/->n2 :node "n1/123"} :node "n1/123"} :type :notify-event-flow}
-                 {:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
+                 ;{:args {:attribute :n2/->n1 :event :discovery :event-data nil :node "n2/123"} :type :notify-event-flow}
                  {:args {:attribute :n1/->n2 :node "n1/123"} :type :notify-flow}
-                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123"} :type :link-flow}
+                 {:args {:attribute :n2/->n1 :meta {} :node "n2/123" :target-attribute :n1/->n2 :target-node "n1/123" :inbound? true} :type :link-flow}
                  {:args {:attribute :n1/->n2 :new-value {:created 0 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1} :node "n1/123" :old-value {:created 0 :data {["n2/123" :n2/->n1] {:created 0 :id "n2/123" :modified 0 :symmetric-attribute :n2/->n1}} :modified 0 :version 0} :value {:created 0 :data {["n2/123" :n2/->n1] {:created 0 :id "n2/123" :me "ta" :modified 1 :symmetric-attribute :n2/->n1}} :modified 1 :version 0}} :type :mutate-flow}
-                 {:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}})))))
+                 ;{:type :notify-event-flow, :args {:node "n2/123", :attribute :n2/->n1, :event :visit, :event-data nil}}
+                 )))))
 
 ;unlink flow
 (timbre/with-merged-config
@@ -496,9 +505,19 @@
               (async/<!!
                 (build-graph blueprints triggers)))) => expected-result)))))
 
+(defn default-post-steps-fn [s]
+  (if (instance? Throwable s)
+    (.printStackTrace s)
+    (->> s
+         (map :trigger)
+         (map (juxt :type :depth
+                    (comp (juxt :node #_(comp str :data :value) :attribute) :args)))
+         (filter (comp attribute->node-type second last))
+         (filter (comp #{:update-flow :notify-flow :eval-flow} first)))))
+
 (defn test-graph-steps [blueprints triggers expected-result
                         & {:keys [sync async post-fn mock-http log-level tear-down-fn]
-                           :or   {sync true async true post-fn default-post-fn mock-http true log-level :error}}]
+                           :or   {sync true async true post-fn default-post-steps-fn mock-http true log-level :error}}]
   (timbre/with-merged-config
     (gen-timbre-test-config log-level)
     (with-redefs [get-time-ms (constantly 0)]
@@ -559,12 +578,12 @@
                           {:boot     '(:created :version :id),
                            :modified '(:modified)}},
        :blueprints-brief
-                         {:node/attribute '(:version :type :value-type :notify-events :diff-fn :set-fn :unset-fn :id),
-                          :id             '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :on-events :eval-fn :version :listeners :notifiers :value-type :async?),
-                          :type           '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :eval-fn :version :notifiers :value-type :async?),
-                          :version        '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :on-events :eval-fn :version :notifiers :value-type :async?),
-                          :created        '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :on-events :eval-fn :version :notifiers :value-type :async?),
-                          :modified       '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :on-events :eval-fn :version :notifiers :value-type :async?)}}]
+       {:node/attribute '(:version :type :value-type :notify-events :diff-fn :set-fn :unset-fn :id),
+        :id             '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :on-events :eval-fn :version :listeners :notifiers :value-type :async?),
+        :type           '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :eval-fn :version :notifiers :value-type :async?),
+        :version        '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :on-events :eval-fn :version :notifiers :value-type :async?),
+        :created        '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :on-events :eval-fn :version :notifiers :value-type :async?),
+        :modified       '(:unset-fn :sources :notify-events :type :diff-fn :derefable? :id :set-fn :on-events :eval-fn :version :notifiers :value-type :async?)}}]
 
   (test-graph blueprints
               triggers
@@ -743,7 +762,20 @@
       expected
       {"node/123" {:node/val 4 :node/val+1 5 :node/val-1 3}}]
 
-  (test-graph blueprints triggers expected))
+  (test-graph blueprints triggers expected)
+
+  (test-graph-steps blueprints triggers
+                    '([:update-flow nil ["node/123" :node/val]]
+                      [:notify-flow 1 ["node/123" :node/val]]
+                      [:eval-flow 2 ["node/123" :node/val-1]]
+                      [:update-flow 3 ["node/123" :node/val-1]]
+                      [:notify-flow 4 ["node/123" :node/val-1]]
+                      [:eval-flow 2 ["node/123" :node/val+1]]
+                      [:update-flow 3 ["node/123" :node/val+1]]
+                      [:notify-flow 4 ["node/123" :node/val+1]])
+                    :async false
+                    ;:mock-http false
+                    ))
 
 ;attributes composition
 (let [
@@ -758,7 +790,9 @@
       expected
       {"node/123" {:node/val 0 :node/val+1 1 :node/val+1>0? true}}]
 
-  (test-graph blueprints triggers expected))
+  (test-graph blueprints triggers expected)
+  #_(test-graph-steps blueprints triggers expected
+                      :async false))
 
 ;sanity - sources -> listeners
 (fact "deduce-listeners"
@@ -841,7 +875,13 @@
 
   (test-graph blueprints
               permutation-of-3-triggers-out-of-12-possible-permutations!
-              consistent-outcome!!))
+              consistent-outcome!!
+              ;:async false
+              ;:log-level :info
+              #_#_:post-fn (partial keep #(when (and (= :mutate-flow (get-in % [:trigger :type]))
+                                                     (not (#{:id :version :created :modified :type}
+                                                           (get-in % [:trigger :args :attribute]))))
+                                            ((juxt :node :attribute) (get-in % [:trigger :args]))))))
 
 ;1-to-many refs:
 ; link parent node with child nodes (in any direction), setting a transitive value on the parent mid-way
@@ -879,38 +919,39 @@
 ; link parent node with 5000 child nodes (in any direction), setting a transitive value on the parent at a random point
 ; assert that 5000 child nodes in the resulting graph are set with the parent transitive value
 ; takes ~10s for the two runs - sync + async :(
-(time (let [
-            blueprints
-            {:parent/val      (->static)
-             :parent/children (->refs :child/parent)
-             :child/parent    (->ref :parent/children)
-             :child/val       (->dynamic identity [[:child/parent :parent/val]])}
+#_(time (let [
+              blueprints
+              {:parent/val      (->static)
+               :parent/children (->refs :child/parent)
+               :child/parent    (->ref :parent/children)
+               :child/val       (->dynamic identity [[:child/parent :parent/val]])}
 
-            triggers
-            (shuffle (reduce #(apply ->link %1 %2)
-                             (->update [] "parent/pp" :parent/val true)
-                             (map #(let [child-node (str "child/cc" %)]
-                                     (if (even? %)
-                                       [child-node :child/parent "parent/pp" :parent/children {}]
-                                       ["parent/pp" :parent/children child-node :child/parent {}]))
-                                  (range 5000))))]
+              triggers
+              (shuffle (reduce #(apply ->link %1 %2)
+                               (->update [] "parent/pp" :parent/val true)
+                               (map #(let [child-node (str "child/cc" %)]
+                                       (if (even? %)
+                                         [child-node :child/parent "parent/pp" :parent/children {}]
+                                         ["parent/pp" :parent/children child-node :child/parent {}]))
+                                    (range 5000))))]
 
-        (test-graph blueprints
-                    triggers
-                    5000
-                    ;:async false
-                    ;:log-level :error
-                    :post-fn (fn [graph]
-                               #_(->> {:node "parent/pp" :attribute {:sources [[:parent/children :child/val]]}}
-                                      (get-sources-data! graph)
-                                      (first)
-                                      (filter some?)
-                                      (count))
-                               #_(count (str graph))
-                               (->> (get-refs graph "parent/pp" :parent/children)
-                                    (map #(get! graph % :child/val))
-                                    (filter :data)
-                                    (count))))))
+          (test-graph blueprints
+                      triggers
+                      5000
+                      ;:async false
+                      ;:log-level :error
+                      :post-fn (fn [graph]
+                                 #_(->> {:node "parent/pp" :attribute {:sources [[:parent/children :child/val]]}}
+                                        (get-sources-data! graph)
+                                        (first)
+                                        (filter some?)
+                                        (count))
+                                 #_(count (str graph))
+                                 (->> (get-refs graph "parent/pp" :parent/children)
+                                      (map #(get! graph % :child/val))
+                                      (filter :data)
+                                      (count)
+                                      )))))
 
 ;notifications
 (let [clock (atom 1)
@@ -919,30 +960,34 @@
       {:a/->b            (->ref :b/->a)
 
        ;fires :discovery on change (once)
-       ;fires :visit on visit (2 per first trigger, 1 more per each followup trigger = 4 in total)
+       ;fires :visit on visit (1 per each trigger = 3 in total)
        ;fires :ping on change (once)
-       :b/->a            (->fire-event (->ref :a/->b) :ping)
+       :b/->a            (-> (->ref :a/->b)
+                             (->fire-event :ping))
 
        ;listens to change in :b/->a specifically (1)
-       :b/links          (->on-change (->dynamic (fnil inc 0) [[:this]]) [[:b/->a]])
+       :b/links          (-> (->dynamic (fnil inc 0) [[:this]])
+                             (->on-change [[:b/->a]]))
 
        ;listens to :boot events (1 - only triggers on first :boot)
        ;fires :ping (1)
-       :b/boot-time      (->fire-event (->on-boot (->dynamic tick-fn [])) :ping)
+       :b/boot-time      (-> (->dynamic tick-fn [])
+                             (->on-boot)
+                             (->fire-event :ping))
 
        ;listens to :discovery events (1)
        ;first :ping (1)
        :b/last-discovery (->fire-event (->on-discovery (->dynamic tick-fn [])) :ping)
 
        ;listens to :discovery events (1)
-       :b/discoveries    (->on-event (->dynamic (fnil inc 0) [[:this]]) :discovery)
+       :b/discoveries    (->on-discovery (->dynamic (fnil inc 0) [[:this]]))
 
        ;listens to :visit events
-       ;fires :ping (4)
+       ;fires :ping (3)
        :b/last-visit     (->fire-event (->on-visit (->dynamic tick-fn [])) :ping)
 
        ;listens to :visit events (4)
-       :b/visits         (->on-event (->dynamic (fnil inc 0) [[:this]]) :visit)
+       :b/visits         (->on-visit (->dynamic (fnil inc 0) [[:this]]))
 
        ;listens to :modified events
        ;therefore does NOT fire :modified
@@ -964,20 +1009,20 @@
       expected
       {"a/aaa" {:a/->b "b/bbb"}
        "b/bbb" {:b/->a            "a/aaa"
-                :b/boot-time      3
-                :b/last-discovery 24
-                :b/last-visit     32
-                :b/last-modified  35
-                :b/mods           20
+                :b/boot-time      2
+                :b/last-discovery 18
+                :b/last-visit     28
+                :b/last-modified  31
+                :b/mods           17
                 :b/discoveries    1
                 :b/links          1
-                :b/visits         4
-                :b/pings          7}}]
+                :b/visits         3
+                :b/pings          6}}]
 
   (test-graph blueprints
               triggers
               expected
-              ;:sync false
+              :async false
               ;:log-level :info
               :tear-down-fn #(reset! clock 1)))
 
@@ -1045,83 +1090,83 @@
 
 ;crawler prototype - how cute!
 ; but takes ~5s for the two runs - sync + async :(
-(time (letfn [
-              (calc-min-crawl-depth [sources-depths]
-                (inc (apply min sources-depths)))
+#_(time (letfn [
+                (calc-min-crawl-depth [sources-depths]
+                  (inc (apply min sources-depths)))
 
-              (parse-url [id]
-                (second (clojure.string/split id #"/" 2)))
+                (parse-url [id]
+                  (second (clojure.string/split id #"/" 2)))
 
-              (fetch [url depth]
-                (when (and url ((fnil <= Integer/MAX_VALUE) depth 4))
-                  (timbre/info "discovered" depth url)
-                  (let [http-get (with-callback http/get :callback :body)]
-                    (http-get url :callback))))
+                (fetch [url depth]
+                  (when (and url ((fnil <= Integer/MAX_VALUE) depth 4))
+                    (timbre/info "discovered" depth url)
+                    (let [http-get (with-callback http/get :callback :body)]
+                      (http-get url :callback))))
 
-              (href->web-resource-id [url href]
-                (cond->> href
-                         (not (clojure.string/starts-with? href "http")) (str url)
-                         :to-web-resource (str "web-resource/")))
-              (extract-hrefs [html url]
-                (when html
-                  (->> (re-seq #"href=\"([^\"]*)" html)
-                       (map second)
-                       (map (partial href->web-resource-id url))
-                       (take 1))))
+                (href->web-resource-id [url href]
+                  (cond->> href
+                           (not (clojure.string/starts-with? href "http")) (str url)
+                           :to-web-resource (str "web-resource/")))
+                (extract-hrefs [html url]
+                  (when html
+                    (->> (re-seq #"href=\"([^\"]*)" html)
+                         (map second)
+                         (map (partial href->web-resource-id url))
+                         (take 1))))
 
-              (post-fn [graph] "just to beautify the result a bit.."
-                (if (instance? Throwable graph)
-                  (.printStackTrace graph)
-                  (map (fn [[id web-resource]]
-                         (-> {:url id}
-                             (assoc :depth (get-in web-resource [:web-resource/min-crawl-depth :data]))
-                             (assoc :sources (map (comp (juxt :id :via) second) (get-in web-resource [:web-resource/sources :data])))
-                             (assoc :hrefs (map (comp :id second) (get-in web-resource [:web-resource/hrefs :data])))))
-                       (:nodes graph))))]
+                (post-fn [graph] "just to beautify the result a bit.."
+                  (if (instance? Throwable graph)
+                    (.printStackTrace graph)
+                    (map (fn [[id web-resource]]
+                           (-> {:url id}
+                               (assoc :depth (get-in web-resource [:web-resource/min-crawl-depth :data]))
+                               (assoc :sources (map (comp (juxt :id :via) second) (get-in web-resource [:web-resource/sources :data])))
+                               (assoc :hrefs (map (comp :id second) (get-in web-resource [:web-resource/hrefs :data])))))
+                         (:nodes graph))))]
 
-        (let [
-              blueprints
-              {:web-resource/min-crawl-depth (->dynamic calc-min-crawl-depth [[:web-resource/sources :web-resource/min-crawl-depth]])
-               :web-resource/url             (-> (->dynamic parse-url [[:id]]))
-               :web-resource/html            (-> (->dynamic fetch [[:web-resource/url] [:web-resource/min-crawl-depth]])
-                                                 (->async)
-                                                 (->tts "14d"))
-               :web-resource/hrefs           (-> (->refs :web-resource/sources)
-                                                 (->make-dynamic extract-hrefs [[:web-resource/html] [:web-resource/url]])
-                                                 (->with-meta (constantly {:via "(via href)"})))
-               :web-resource/sources         (->refs :web-resource/hrefs)}
+          (let [
+                blueprints
+                {:web-resource/min-crawl-depth (->dynamic calc-min-crawl-depth [[:web-resource/sources :web-resource/min-crawl-depth]])
+                 :web-resource/url             (-> (->dynamic parse-url [[:id]]))
+                 :web-resource/html            (-> (->dynamic fetch [[:web-resource/url] [:web-resource/min-crawl-depth]])
+                                                   (->async)
+                                                   (->tts "14d"))
+                 :web-resource/hrefs           (-> (->refs :web-resource/sources)
+                                                   (->make-dynamic extract-hrefs [[:web-resource/html] [:web-resource/url]])
+                                                   (->with-meta (constantly {:via "(via href)"})))
+                 :web-resource/sources         (->refs :web-resource/hrefs)}
 
-              triggers
-              (-> []
-                  ;(->update "web-resource/http://google.com" :web-resource/url "http://google.com")
-                  (->update "web-resource/http://google.com" :web-resource/min-crawl-depth 0))
+                triggers
+                (-> []
+                    ;(->update "web-resource/http://google.com" :web-resource/url "http://google.com")
+                    (->update "web-resource/http://google.com" :web-resource/min-crawl-depth 0))
 
-              expected
-              '({:depth   0
-                 :url     "web-resource/http://google.com"
-                 :hrefs   ("web-resource/http://www.google.co.il/imghp?hl=iw&tab=wi")
-                 :sources ()}
-                {:depth   1
-                 :url     "web-resource/http://www.google.co.il/imghp?hl=iw&tab=wi"
-                 :hrefs   ("web-resource/https://www.google.co.il/webhp?tab=iw")
-                 :sources (["web-resource/http://google.com" "(via href)"])}
-                {:depth   2
-                 :url     "web-resource/https://www.google.co.il/webhp?tab=iw"
-                 :hrefs   ("web-resource/https://www.google.co.il/imghp?hl=iw&tab=wi")
-                 :sources (["web-resource/http://www.google.co.il/imghp?hl=iw&tab=wi" "(via href)"]
-                           ["web-resource/https://www.google.co.il/imghp?hl=iw&tab=wi" "(via href)"])}
-                {:depth   3
-                 :url     "web-resource/https://www.google.co.il/imghp?hl=iw&tab=wi"
-                 :hrefs   ("web-resource/https://www.google.co.il/webhp?tab=iw")
-                 :sources (["web-resource/https://www.google.co.il/webhp?tab=iw" "(via href)"])})]
+                expected
+                '({:depth   0
+                   :url     "web-resource/http://google.com"
+                   :hrefs   ("web-resource/http://www.google.co.il/imghp?hl=iw&tab=wi")
+                   :sources ()}
+                  {:depth   1
+                   :url     "web-resource/http://www.google.co.il/imghp?hl=iw&tab=wi"
+                   :hrefs   ("web-resource/https://www.google.co.il/webhp?tab=iw")
+                   :sources (["web-resource/http://google.com" "(via href)"])}
+                  {:depth   2
+                   :url     "web-resource/https://www.google.co.il/webhp?tab=iw"
+                   :hrefs   ("web-resource/https://www.google.co.il/imghp?hl=iw&tab=wi")
+                   :sources (["web-resource/http://www.google.co.il/imghp?hl=iw&tab=wi" "(via href)"]
+                             ["web-resource/https://www.google.co.il/imghp?hl=iw&tab=wi" "(via href)"])}
+                  {:depth   3
+                   :url     "web-resource/https://www.google.co.il/imghp?hl=iw&tab=wi"
+                   :hrefs   ("web-resource/https://www.google.co.il/webhp?tab=iw")
+                   :sources (["web-resource/https://www.google.co.il/webhp?tab=iw" "(via href)"])})]
 
-          (test-graph blueprints
-                      triggers
-                      expected
-                      ;:async false
-                      ;:log-level :info
-                      :mock-http false
-                      :post-fn post-fn))))
+            (test-graph blueprints
+                        triggers
+                        expected
+                        ;:async false
+                        ;:log-level :info
+                        :mock-http false
+                        :post-fn post-fn))))
 
 ;altogether now
 (let [
@@ -1175,3 +1220,430 @@
                         :passenger/owner? false}}]
 
   (test-graph blueprints triggers expected))
+
+(def discover-domain-parent
+  (fn [domain] (let [parent (domain-parent domain)] (when (has-suffix? parent) (str "domain/" parent)))))
+(defn ->dynamic-ref [sa f sources] (-> (->ref sa) (->make-dynamic f sources)))
+(defn ->dynamic-refs
+  ([sa sources] (-> (->refs sa) (->make-dynamic (partial apply concat) sources)))
+  ([sa f sources] (-> (->refs sa) (->make-dynamic f sources))))
+
+;cycognito use-case that will hopefully satisfy them
+(let [discover-ips (fn [related? data] (when related? (get data :ips)))
+      discover-orgs :orgs
+      discover-domain-parent discover-domain-parent
+      org-match? (comp boolean (set ["abc" "def"]))
+      is-any? (comp boolean (partial some true?))
+      fetch-domain-data (fn [] {:ips ["ip/1.1.1.1"] :orgs ["org/abc"]})
+
+      blueprints
+      {:domain/data       (->on-boot (->tts (->dynamic fetch-domain-data []) "7d"))
+       :domain/name       (->on-boot (->dynamic ->node-id [[:id]]))
+       :domain/parent     (->dynamic-ref :domain/subdomains discover-domain-parent [[:domain/name]])
+       :domain/subdomains (->refs :domain/parent)
+       :domain/orgs       (->dynamic-refs :org/domains discover-orgs [[:domain/data]])
+       :domain/related?   (->dynamic is-any? [[:domain/orgs :org/related?]])
+       :domain/ips        (->dynamic-refs :ip/domains discover-ips [[:domain/related?] [:domain/data]])
+
+       :org/name          (->on-boot (->dynamic ->node-id [[:id]]))
+       :org/related?      (->dynamic org-match? [[:org/name]])
+       :org/domains       (->refs :domain/orgs)
+       :org/ips           (->dynamic-refs :ip/orgs [[:org/domains :domain/ips :id]])
+
+       :ip/ip             (->on-boot (->dynamic ->node-id [[:id]]))
+       :ip/ipv4?          (->dynamic ip4? [[:ip/ip]])
+       :ip/domains        (->refs :domain/ips)
+       :ip/orgs           (->dynamic-refs :org/ips [[:ip/domains :domain/orgs :id]])}
+
+      triggers
+      (-> []
+          ;(->eval "domain/www.google.co.il" :domain/data)
+          (->link "ip/1.1.1.1" :ip/domains "domain/www.google.co.il" :domain/ips {})
+          )
+      ]
+
+  (test-graph blueprints
+              triggers
+              (just
+                {"domain/google.co.il"     {:domain/data       {:ips ["ip/1.1.1.1"] :orgs ["org/abc"]}
+                                            :domain/ips        '("ip/1.1.1.1")
+                                            :domain/name       "google.co.il"
+                                            :domain/orgs       '("org/abc")
+                                            :domain/related?   true
+                                            :domain/subdomains '("domain/www.google.co.il")}
+                 "domain/www.google.co.il" {:domain/data     {:ips ["ip/1.1.1.1"] :orgs ["org/abc"]}
+                                            :domain/ips      '("ip/1.1.1.1")
+                                            :domain/name     "www.google.co.il"
+                                            :domain/orgs     '("org/abc")
+                                            :domain/parent   "domain/google.co.il"
+                                            :domain/related? true}
+                 "ip/1.1.1.1"              (just
+                                             {:ip/domains (just #{"domain/www.google.co.il" "domain/google.co.il"})
+                                              :ip/ip      "1.1.1.1"
+                                              :ip/ipv4?   true
+                                              :ip/orgs    '("org/abc")})
+                 "org/abc"                 (just
+                                             {:org/domains  (just #{"domain/www.google.co.il" "domain/google.co.il"})
+                                              :org/related? true
+                                              :org/ips      '("ip/1.1.1.1")
+                                              :org/name     "abc"})})
+              :async false
+              ;:log-level :info
+              )
+  #_(test-graph-steps blueprints
+                      triggers
+                      '([:mutate-flow 1 ["ip/1.1.1.1" :ip/domains]]
+                        [:mutate-flow 4 ["ip/1.1.1.1" :ip/ip]]
+                        [:mutate-flow 7 ["ip/1.1.1.1" :ip/ipv4?]]
+                        [:mutate-flow 2 ["domain/www.google.co.il" :domain/ips]]
+                        [:mutate-flow 5 ["domain/www.google.co.il" :domain/data]]
+                        [:mutate-flow 8 ["org/abc" :org/domains]]
+                        [:mutate-flow 11 ["org/abc" :org/name]]
+                        [:mutate-flow 14 ["org/abc" :org/related?]]
+                        [:mutate-flow 17 ["domain/www.google.co.il" :domain/related?]]
+                        [:mutate-flow 20 ["domain/www.google.co.il" :domain/name]]
+                        [:mutate-flow 23 ["domain/google.co.il" :domain/subdomains]]
+                        [:mutate-flow 26 ["domain/google.co.il" :domain/data]]
+                        [:mutate-flow 29 ["org/abc" :org/domains]]
+                        [:mutate-flow 30 ["domain/google.co.il" :domain/orgs]]
+                        [:mutate-flow 33 ["domain/google.co.il" :domain/name]]
+                        [:mutate-flow 33 ["domain/google.co.il" :domain/related?]]
+                        [:mutate-flow 36 ["ip/1.1.1.1" :ip/domains]]
+                        [:mutate-flow 37 ["domain/google.co.il" :domain/ips]]
+                        [:mutate-flow 40 ["ip/1.1.1.1" :ip/orgs]]
+                        [:mutate-flow 41 ["org/abc" :org/ips]]
+                        [:mutate-flow 39 ["org/abc" :org/ips]]
+                        [:mutate-flow 24 ["domain/www.google.co.il" :domain/parent]]
+                        [:mutate-flow 9 ["domain/www.google.co.il" :domain/orgs]]
+                        [:mutate-flow 12 ["domain/www.google.co.il" :domain/related?]]
+                        [:mutate-flow 15 ["ip/1.1.1.1" :ip/domains]])
+                      :async false
+                      ;:log-level :info
+                      :post-fn (comp
+                                 ;clojure.pprint/pprint
+                                 (partial filter (comp #{:mutate-flow} first))
+                                 (partial filter (comp attribute->node-type second last))
+                                 (partial map (juxt :type :depth
+                                                    (comp (juxt :node :attribute #_(comp str :data :value)) :args)))
+                                 (partial map :trigger))
+                      ))
+
+;debug fn use-case
+(defn debug-steps-fn [steps]
+  (loop [steps steps
+         step nil]
+    (let [in (read)]
+      (cond
+        (#{'exit 'quit 'q} in) (prn "done")
+        (vector? in) (let [dat (get-in step in)]
+                       (prn in)
+                       (clojure.pprint/pprint dat)
+                       (recur steps step))
+        (number? in)
+        (let [num-steps-to-advance in
+              step (last (take num-steps-to-advance steps))
+              remainder (drop num-steps-to-advance steps)]
+          (if (nil? step) (prn "done")
+                          (do
+                            (prn (format "forward %d steps" num-steps-to-advance))
+                            (prn ((comp (juxt :type :depth
+                                              (comp (juxt :node :attribute #_(comp str :data :value)) :args))
+                                        :trigger) step))
+                            (recur remainder step))))
+        (fn? (try (eval in)
+                  (catch Throwable e
+                    (prn (str (.getCause e)))))) (do
+                                                   (prn ((eval in) step))
+                                                   (recur steps step))
+        :else (do
+                (prn "unknown input: " in)
+                (recur steps step))))))
+
+;sources use-case
+(let [blueprints
+      {:a/->b   (->with-meta (->make-dynamic (->refs :b/->a) (constantly "b/bbb") [])
+                             #(do {:via [% :a/->b]}))
+       ;:a/visits      (->on-visit (->dynamic (partial prn :a/visits) [[:id] [:source] [:meta] [:ref]]))
+       ;:a/discoveries (->on-discovery (->dynamic (partial prn :a/discoveries) [[:id] [:source] [:meta] [:ref]]))
+       :sources (->on-discovery (->on-visit (->dynamic #(when (:disc? %) %) [[:ref]]
+                                                       :set-fn (fn set-refs-fn [refs ref] (assoc refs (->ref-id ref) ref))
+                                                       :unset-fn dissoc
+                                                       :type :pseudo-refs)))
+       :a/ttt   (->dynamic identity [[:sources :id]])
+       :b/->a   (->with-meta (->make-dynamic (->ref :a/->b) (constantly "a/aaa") [])
+                             #(do {:via [% :b/->a]}))
+       ;:b/visits      (->on-visit (->dynamic (partial prn :b/visits) [[:id] [:source] [:meta] [:ref]]))
+       ;:b/discoveries (->on-discovery (->dynamic (partial prn :b/discoveries) [[:id] [:source] [:meta] [:ref]]))
+       #_#_:b/sources (->on-discovery (->on-visit (->dynamic #(when (:disc? %) %) [[:ref]]
+                                                             :set-fn (fn set-refs-fn [refs ref] (assoc refs (->ref-id ref) ref))
+                                                             :unset-fn dissoc
+                                                             :type :pseudo-refs)))
+       :b/ttt   (->dynamic identity [[:sources :id]])
+       }
+
+      triggers
+      (-> []
+          (->link "a/aaa" :a/->b "b/bbb" :b/->a {})
+          (->link "b/bbb" :b/->a "a/aaa" :a/->b {})
+          (->eval "b/123" :b/->a)
+          (->eval "b/456" :b/->a)
+          (->eval "a/aaa" :a/->b)
+          ;(->eval "a/123" :a/->b)
+          )
+      ]
+  (test-graph blueprints triggers
+              {}
+              :async false
+              ;:log-level :info
+              :post-fn (constantly {})
+              ))
+
+#_(let [discover-ips (fn [related? data] (when related? (get data :ips)))
+        discover-orgs :orgs
+        discover-domain-parent discover-domain-parent
+        org-match? (comp boolean (set ["abc" "def"]))
+        is-any? (comp boolean (partial some true?))
+        fetch-domain-data (fn fetch-domain-data [] {:ips ["ip/1.1.1.1"] :orgs ["org/abc"]})
+        filter-paths (fn filter-paths [id disc-paths]
+                       (filter (partial not-any? #{id}) disc-paths))
+        filter-multi-paths (fn filter-multi-paths [id multi-paths]
+                             (mapcat (partial filter-paths id) multi-paths))
+        prep-disc-paths (fn prep-disc-paths [id entry-point? paths]
+                          (sort-by count (map #(conj % id)
+                                              (if (and id entry-point?)
+                                                (conj paths ["->"])
+                                                paths))))
+        calc-disc-paths (fn calc-disc-paths
+                          ([id entry-point? multi-paths] (calc-disc-paths id entry-point? nil multi-paths))
+                          ([id entry-point? paths multi-paths]
+                           (let [paths (filter not-empty
+                                               (distinct
+                                                 (concat
+                                                   (mapcat (partial filter-paths id) paths)
+                                                   (mapcat (partial filter-multi-paths id) multi-paths))))]
+                             (prep-disc-paths id entry-point? paths))))
+
+        blueprints
+        {:domain/data               (->on-boot (->tts (->dynamic fetch-domain-data []) "7d"))
+         :domain/name               (->on-boot (->dynamic ->node-id [[:id]]))
+         :domain/parent             (->dynamic-ref :domain/subdomains discover-domain-parent [[:domain/name]])
+         :domain/subdomains         (->refs :domain/parent)
+         :domain/orgs               (->dynamic-refs :org/domains discover-orgs [[:domain/data]])
+         :domain/related?           (->dynamic is-any? [[:domain/orgs :org/related?]])
+         :domain/ips                (->dynamic-refs :ip/domains discover-ips [[:domain/related?] [:domain/data]])
+         :domain/owner              (->dynamic (partial apply merge-with *) [[:domain/orgs :org/owner]])
+         :domain/entry-point?       (->static)
+         :domain/min-discovery-path (->dynamic first [[:domain/discovery-paths]])
+         :domain/discovery-paths    (->dynamic (fn [id entry-point? parent-paths & more]
+                                                 (calc-disc-paths id entry-point? [parent-paths] more))
+                                               [[:id]
+                                                [:domain/entry-point?]
+                                                [:domain/parent :domain/discovery-paths]
+                                                [:domain/subdomains :domain/discovery-paths]
+                                                [:domain/orgs :org/discovery-paths]
+                                                [:domain/ips :ip/discovery-paths]])
+
+         :org/name                  (->on-boot (->dynamic ->node-id [[:id]]))
+         :org/related?              (->dynamic org-match? [[:org/name]])
+         :org/domains               (->refs :domain/orgs)
+         :org/ips                   (->dynamic-refs :ip/orgs [[:org/domains :domain/ips :id]])
+         :org/owner                 (->dynamic #(assoc {} % (rand)) [[:org/name]])
+         :org/entry-point?          (->static)
+         :org/min-discovery-path    (->dynamic first [[:org/discovery-paths]])
+         :org/discovery-paths       (->dynamic (fn [id entry-point? & more]
+                                                 (calc-disc-paths id entry-point? nil more))
+                                               [[:id]
+                                                [:org/entry-point?]
+                                                [:org/domains :domain/discovery-paths]
+                                                [:org/ips :ip/discovery-paths]])
+
+         :ip/ip                     (->on-boot (->dynamic ->node-id [[:id]]))
+         :ip/ipv4?                  (->dynamic ip4? [[:ip/ip]])
+         :ip/domains                (->refs :domain/ips)
+         :ip/orgs                   (->dynamic-refs :org/ips [[:ip/domains :domain/orgs :id]])
+         :ip/owner                  (->dynamic (partial apply merge-with *) [[:ip/domains :domain/owner]])
+         :ip/entry-point?           (->static)
+         :ip/min-discovery-path     (->dynamic first [[:ip/discovery-paths]])
+         :ip/discovery-paths        (->dynamic (fn [id entry-point? & more]
+                                                 (calc-disc-paths id entry-point? nil more))
+                                               [[:id]
+                                                [:ip/entry-point?]
+                                                [:ip/domains :domain/discovery-paths]
+                                                [:ip/orgs :org/discovery-paths]])
+         }
+
+        triggers
+        (-> []
+            ;(->link "ip/1.1.1.1" :ip/domains "domain/www.google.co.il" :domain/ips {})
+            ;(->update "domain/www.google.co.il" :domain/related? false)
+            ;(->eval "domain/www.google.co.il" :domain/data)
+            (->update "domain/www.google.co.il" :domain/entry-point? true)
+            ;(->update "org/abc" :org/entry-point? true)
+            )
+        ]
+
+    (test-graph blueprints
+                triggers
+                nil #_(just
+                        {"domain/google.co.il"     {:domain/data       {:ips ["ip/1.1.1.1"] :orgs ["org/abc"]}
+                                                    :domain/ips        '("ip/1.1.1.1")
+                                                    :domain/name       "google.co.il"
+                                                    :domain/orgs       '("org/abc")
+                                                    :domain/related?   true
+                                                    :domain/subdomains '("domain/www.google.co.il")}
+                         "domain/www.google.co.il" {:domain/data     {:ips ["ip/1.1.1.1"] :orgs ["org/abc"]}
+                                                    :domain/ips      '("ip/1.1.1.1")
+                                                    :domain/name     "www.google.co.il"
+                                                    :domain/orgs     '("org/abc")
+                                                    :domain/parent   "domain/google.co.il"
+                                                    :domain/related? true}
+                         "ip/1.1.1.1"              (just
+                                                     {:ip/domains (just #{"domain/www.google.co.il" "domain/google.co.il"})
+                                                      :ip/ip      "1.1.1.1"
+                                                      :ip/ipv4?   true
+                                                      :ip/orgs    '("org/abc")})
+                         "org/abc"                 (just
+                                                     {:org/domains  (just #{"domain/www.google.co.il" "domain/google.co.il"})
+                                                      :org/related? true
+                                                      :org/ips      '("ip/1.1.1.1")
+                                                      :org/name     "abc"})})
+                :async false
+                ;:log-level :info
+                ;:post-fn (comp clojure.pprint/pprint default-post-fn)
+                )
+    #_(test-graph-steps blueprints
+                        triggers
+                        nil #_'([:mutate-flow 2 ["domain/www.google.co.il" :domain/data]]
+                                [:mutate-flow 5 ["org/abc" :org/domains]]
+                                [:mutate-flow 8 ["org/abc" :org/name]]
+                                [:mutate-flow 11 ["org/abc" :org/related?]]
+                                [:mutate-flow 14 ["domain/www.google.co.il" :domain/related?]]
+                                [:mutate-flow 17 ["domain/www.google.co.il" :domain/name]]
+                                [:mutate-flow 20 ["domain/google.co.il" :domain/subdomains]]
+                                [:mutate-flow 23 ["domain/google.co.il" :domain/data]]
+                                [:mutate-flow 26 ["org/abc" :org/domains]]
+                                [:mutate-flow 27 ["domain/google.co.il" :domain/orgs]]
+                                [:mutate-flow 30 ["domain/google.co.il" :domain/name]]
+                                [:mutate-flow 30 ["domain/google.co.il" :domain/related?]]
+                                [:mutate-flow 33 ["ip/1.1.1.1" :ip/domains]]
+                                [:mutate-flow 36 ["ip/1.1.1.1" :ip/ip]]
+                                [:mutate-flow 39 ["ip/1.1.1.1" :ip/ipv4?]]
+                                [:mutate-flow 34 ["domain/google.co.il" :domain/ips]]
+                                [:mutate-flow 37 ["ip/1.1.1.1" :ip/orgs]]
+                                [:mutate-flow 38 ["org/abc" :org/ips]]
+                                [:mutate-flow 21 ["domain/www.google.co.il" :domain/parent]]
+                                [:mutate-flow 6 ["domain/www.google.co.il" :domain/orgs]]
+                                [:mutate-flow 9 ["domain/www.google.co.il" :domain/related?]]
+                                [:mutate-flow 12 ["ip/1.1.1.1" :ip/domains]]
+                                [:mutate-flow 13 ["domain/www.google.co.il" :domain/ips]])
+                        :async false
+                        ;:log-level :info
+                        #_#_:post-fn debug-steps-fn
+                        :post-fn (comp
+                                   ;clojure.pprint/pprint
+                                   ;distinct
+                                   ;sort
+                                   (partial filter (comp #{:mutate-flow} first))
+                                   (partial filter (comp attribute->node-type second last))
+                                   (partial map (juxt :type :depth
+                                                      (comp (juxt :node :attribute #_(comp str :data :value)) :args)))
+                                   (partial map :trigger))
+                        ))
+
+#_(let [
+        calc-value (fn [v] (and (some? v)
+                                (pos? v)
+                                (int (/ v 2))))
+        calc-children (fn [value]
+                        (when-let [v (calc-value value)]
+                          [(str "node/L/" v \/ (rand-int 1000))
+                           (str "node/R/" v \/ (rand-int 1000))]))
+        blueprints
+        {:node/value    (->dynamic calc-value [[:node/parent :node/value]])
+         :node/parent   (->ref :node/children)
+         :node/children (->make-dynamic (->refs :node/parent) calc-children [[:node/value]])}
+
+        triggers
+        (-> []
+            (->update "node/root" :node/value 10))
+        ]
+
+    (test-graph blueprints triggers nil
+                :async false
+                ;:log-level :info
+                ))
+
+(let [
+      rand-0-1 #(rand-int 2)
+      eye-color-genes-generator #(partition 2 (repeatedly rand-0-1))
+      inherit-eye-color (fn [& [genes]] (map first (take 2 (concat (filter some? genes) (eye-color-genes-generator)))))
+      eye-color? #(when % (if (some pos? %) "brown" "blue"))
+      side? #(case % "M" "paternal" "F" "maternal" nil)
+      nested-concat (partial apply concat)
+
+      blueprints
+      {
+       ;1 basic links
+       :gen1/child           (->ref :gen2/parents)
+       ;2 taking sides
+       :gen1/side            (->dynamic side? [[:gen1/child :gen2/gender]])
+       ;3 eye color
+       :gen1/eye-color-genes (->on-boot (->dynamic inherit-eye-color []))
+       :gen1/eye-color       (->dynamic eye-color? [[:gen1/eye-color-genes]])
+       ;4 link gen1/gen3
+       :gen1/grandchild      (->make-dynamic (->ref :gen3/grandparents) identity [[:gen1/child :gen2/child :id]])
+       ;5 spouse + in-laws
+       :gen1/adopted         (->make-dynamic (->ref :gen2/in-laws) identity [[:gen1/child :gen2/spouse :id]])
+       ;6 the others
+       :gen1/the-others      (->make-dynamic (->refs :gen1/the-others) identity [[:gen1/child :gen2/spouse :gen2/parents :id]])
+
+       ;1 basic links
+       :gen2/parents         (->refs :gen1/child)
+       :gen2/child           (->ref :gen3/parents)
+       ;2 taking sides
+       :gen2/gender          (->static)
+       ;3 eye color
+       :gen2/eye-color-genes (->dynamic inherit-eye-color [[:gen2/parents :gen1/eye-color-genes]])
+       :gen2/eye-color       (->dynamic eye-color? [[:gen2/eye-color-genes]])
+       ;5 spouse + in-laws
+       :gen2/spouse          (->ref :gen2/spouse)
+       :gen2/in-laws         (->make-dynamic (->refs :gen1/adopted) identity [[:gen2/spouse :gen2/parents :id]])
+
+       ;1 basic links
+       :gen3/parents         (->refs :gen2/child)
+       ;3 eye color
+       :gen3/eye-color-genes (->dynamic inherit-eye-color [[:gen3/parents :gen2/eye-color-genes]])
+       :gen3/eye-color       (->dynamic eye-color? [[:gen3/eye-color-genes]])
+       ;4 link gen1/gen3
+       :gen3/grandparents    (->make-dynamic (->refs :gen1/grandchild) nested-concat [[:gen3/parents :gen2/parents :id]])
+       }
+
+      triggers
+      (-> []
+          ;(->link "gen1/grandpa1" :gen1/child "gen2/father" :gen2/parents {})
+          ;(->link "gen1/grandma1" :gen1/child "gen2/father" :gen2/parents {})
+          ;(->link "gen1/grandpa2" :gen1/child "gen2/mother" :gen2/parents {})
+          ;(->link "gen1/grandma2" :gen1/child "gen2/mother" :gen2/parents {})
+          ;(->link "gen2/father" :gen2/child "gen3/kid" :gen3/parents {})
+          ;(->link "gen2/mother" :gen2/child "gen3/kid" :gen3/parents {})
+
+          ;(->update "gen2/father" :gen2/gender "M")
+          ;(->update "gen2/mother" :gen2/gender "F")
+
+          ;(->link "gen3/kid" :gen3/parents "gen2/mother" :gen2/child {})
+          ;(->link "gen3/kid" :gen3/parents "gen2/father" :gen2/child {})
+          ;(->link "gen2/mother" :gen2/parents "gen1/grandpa1" :gen1/child)
+          ;(->link "gen2/mother" :gen2/parents "gen1/grandma1" :gen1/child)
+          ;(->link "gen2/father" :gen2/parents "gen1/grandpa2" :gen1/child)
+          ;(->link "gen2/father" :gen2/parents "gen1/grandma2" :gen1/child)
+
+          ;(->link "gen2/father" :gen2/spouse "gen2/mother" :gen2/spouse {})
+
+          )
+      ]
+
+  (test-graph blueprints triggers {}
+              :async false
+              ;:mock-http false
+              ;:log-level :info
+              ))

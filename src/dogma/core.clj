@@ -280,7 +280,7 @@
                             max-iterations Integer/MAX_VALUE
                             max-depth      Integer/MAX_VALUE
                             max-duration   Integer/MAX_VALUE
-                            aot 16}}]
+                            aot            16}}]
   (let [out (async/chan aot)]
     (async/go
       (try (loop [[{:keys [type args depth] :as trigger} & more-triggers] (apply list triggers)
@@ -394,6 +394,7 @@
 (defn get-attribute [attributes attribute-id] (get attributes attribute-id))
 (defn attribute->node-type [attribute] (namespace attribute))
 (defn ->node-type [node-id] (first (clojure.string/split node-id #"/")))
+(defn ->node-id [node-id] (second (clojure.string/split node-id #"/")))
 (def default-diff-fn not=)
 (defn default-set-fn [old-value new-value] new-value)
 (def default-unset-fn (constantly nil))
@@ -474,12 +475,13 @@
 ;graph triggers
 (defn ->update [triggers node attribute value]
   (->trigger triggers :update-flow {:node node :attribute attribute :new-value value}))
-(defn ->link [triggers source-node source-attribute target-node target-attribute meta]
+(defn ->link [triggers source-node source-attribute target-node & [target-attribute meta inbound?]]
   (->trigger triggers :link-flow {:node             source-node
                                   :attribute        source-attribute
                                   :target-node      target-node
                                   :target-attribute target-attribute
-                                  :meta             meta}))
+                                  :meta             meta
+                                  :inbound?         inbound?}))
 (defn ->unlink [triggers source-node source-attribute target-node target-attribute]
   (->trigger triggers :unlink-flow {:node             source-node
                                     :attribute        source-attribute
@@ -518,6 +520,7 @@
                     mock-response (init-node query)
                     cb (constantly mock-response)
                     http-get (with-callback http/get :callback cb :on-caller? true)]
+                ;(prn mock-url)
                 (if async?
                   (http-get mock-url :callback)
                   (deref (http-get mock-url cb))))))
@@ -543,6 +546,7 @@
     (cond-async->> (get! graph node attribute)
                    :data (:data)
                    (= :refs type) (map (comp :id val))
+                   (= :pseudo-refs type) (map (comp :id val))
                    (= :ref type) (:id))))
 
 (defn resolve! [graph node bindings paths f]
@@ -561,10 +565,14 @@
     (map-async (partial getter! node bindings) paths)))
 
 (defn get-listeners! [graph {node :node {:keys [listeners]} :attribute}]
-  (async->> (resolve! graph node {} listeners #(do [%1 %2]))
-            (flatten)
-            (filter some?)
-            (partition-all 2)))
+  (let [node-type (->node-type node)
+        relevant-listeners (filter #(when-let [listener (first %)]
+                                      (let [entity-type (attribute->node-type listener)]
+                                        (or (nil? entity-type) (= node-type entity-type)))) listeners)]
+    (async->> (resolve! graph node {} relevant-listeners #(do [%1 %2]))
+              (flatten)
+              (filter some?)
+              (partition-all 2))))
 
 (defn get-sources-data! [graph {node :node {:keys [sources]} :attribute bindings :external-binding :as args}]
   (let [data (async->> (get! graph args) (:data))]
@@ -596,20 +604,22 @@
                                                (timbre/info [node attribute-id] "-update->" (clojure.core/type new-value))
                                                (cond-> triggers
                                                        ;(and (nil? curr-value) notify-boot?) (->notify-event node attribute-id :boot {[:id] node})
-                                                       (and (nil? curr-value) (not (some #{:boot} on-events))) (->notify-event node attribute-id :boot {[:id] node})
                                                        :mutate (->mutate node attribute-id set-fn curr-value new-value version)
+                                                       (and (nil? curr-value) (not (some #{:boot} on-events))) (->notify-event node attribute-id :boot {[:id] node})
                                                        :notify (->notify node attribute-id)
                                                        :notify-events (->notify-events args curr-value notify-events))))))}
    :link-flow         {:side-effect-fn get!
                        :process-fn     (fn link-fn
-                                         [{:keys [node attribute target-node target-attribute meta] :as args}
+                                         [{:keys [node attribute target-node target-attribute meta inbound?] :as args}
                                           {:keys [modified data] :as curr-value}]
                                          (let [{:keys [diff-fn set-fn meta-fn type version notify-boot? notify-events on-events]} attribute
                                                ref (gen-ref target-node target-attribute meta)
                                                curr-ref (lookup-ref data type ref)
                                                same-ref? (= (->ref-id ref) (->ref-id curr-ref))
-                                               new-ref (cond-> ref same-ref? (assoc :created (:created curr-ref)))
-                                               triggers (->notify-event '() target-node target-attribute :visit)]
+                                               new-ref (if same-ref?
+                                                         (merge curr-ref (dissoc ref :created))
+                                                         ref)
+                                               triggers '()]
                                            (if (diff-fn new-ref curr-ref)
                                              (let [attribute-id (->attribute-id attribute)
                                                    unlink-prev-ref? (and curr-ref (= type :ref) (not same-ref?))]
@@ -621,14 +631,19 @@
                                                                                   node
                                                                                   attribute-id)
                                                        ;(and (nil? curr-value) notify-boot?) (->notify-event node attribute-id :boot {[:id] node})
+                                                       :link-this-side (->mutate node attribute-id set-fn curr-value new-ref version)
                                                        (and (nil? curr-value) (not (some #{:boot} on-events))) (->notify-event node attribute-id :boot {[:id] node})
                                                        ;set new ref
-                                                       :link-this-side (->mutate node attribute-id set-fn curr-value new-ref version)
-                                                       :link-other-side (->link target-node target-attribute node attribute-id (meta-fn node))
+
+                                                       :link-other-side (->link target-node target-attribute node attribute-id (meta-fn node) (not inbound?))
                                                        :notify (->notify node attribute-id)
-                                                       :notify-discovery (->notify-event target-node target-attribute :discovery)
+                                                       inbound? (->notify-event node attribute :discovery
+                                                                                {[:source] target-node [:meta] meta [:ref] new-ref})
                                                        :notify-events (->notify-events args curr-value notify-events)))
-                                             triggers)))}
+                                             (cond-> triggers
+                                                     (not inbound?)
+                                                     (->notify-event target-node target-attribute :visit
+                                                                     {[:source] node [:meta] meta [:ref] new-ref})))))}
    :unlink-flow       {:side-effect-fn get!
                        :process-fn     (fn unlink-fn
                                          [{:keys [node attribute target-node target-attribute] :as args}
@@ -686,7 +701,8 @@
                                                                      symmetric-attribute
                                                                      node
                                                                      attribute-id
-                                                                     metadata))
+                                                                     (assoc metadata :discovery-induced? true)
+                                                                     true))
                                                            triggers
                                                            (collify outcome)))
                                                  (->update triggers node attribute-id outcome))))))}
@@ -779,7 +795,8 @@
               (update args :attribute (partial get-attribute blueprints)))]
       (sepl core-flows triggers graph
             :->ser-args ->ser-args
-            :->deser-args ->deser-args))))
+            :->deser-args ->deser-args
+            :max-iterations 100000))))
 
 (defn ->steps [blueprints triggers]
   (let [{:keys [blueprints] :as graph} (init-state blueprints)]
@@ -790,8 +807,8 @@
             (->deser-args [{:keys [attribute] :as args}]
               (update args :attribute (partial get-attribute blueprints)))]
       (lazy-sepl core-flows triggers graph
-            :->ser-args ->ser-args
-            :->deser-args ->deser-args))))
+                 :->ser-args ->ser-args
+                 :->deser-args ->deser-args))))
 
 (defn ->async-steps [blueprints triggers]
   (let [{:keys [blueprints] :as graph} (init-state blueprints)]
@@ -802,8 +819,8 @@
             (->deser-args [{:keys [attribute] :as args}]
               (update args :attribute (partial get-attribute blueprints)))]
       (async-sepl core-flows triggers graph
-            :->ser-args ->ser-args
-            :->deser-args ->deser-args))))
+                  :->ser-args ->ser-args
+                  :->deser-args ->deser-args))))
 
 (defn sync-build-graph [blueprints triggers]
   (set-async false)
