@@ -258,6 +258,26 @@
   (set-async true)
   (async/take! (sepl flows triggers false :max-duration 5) verify-fn))
 
+;side-effect error handling
+(let [flows {:loop {:side-effect-fn (fn [state _] (throw (Exception. "side-effect explodes")))
+                    :process-fn     (fn [args side-effect-outcome] [(->trigger :loop true)])}}
+      triggers [(->trigger :loop true)]
+      verify-fn #(fact (.getMessage (.getCause %)) => "side-effect explodes")]
+  (set-async false)
+  (verify-fn (sepl flows triggers false :max-iterations 5))
+  (set-async true)
+  (async/take! (sepl flows triggers false :max-iterations 5) verify-fn))
+
+;process error handling
+(let [flows {:loop {:side-effect-fn (fn [state _] state)
+                    :process-fn     (fn [args side-effect-outcome] (throw (Exception. "process explodes")))}}
+      triggers [(->trigger :loop true)]
+      verify-fn #(fact (.getMessage (.getCause %)) => "process explodes")]
+  (set-async false)
+  (verify-fn (sepl flows triggers false :max-iterations 5))
+  (set-async true)
+  (async/take! (sepl flows triggers false :max-iterations 5) verify-fn))
+
 ;graph units
 
 ;link flow
@@ -467,7 +487,8 @@
 
 (defn default-post-fn [{:keys [blueprints] :as graph}]
   (if (instance? Throwable graph)
-    (.printStackTrace graph)
+    ;(.printStackTrace graph)
+    (timbre/with-config timbre/default-config (timbre/error graph))
     (map-vals (fn [node]
                 (into {}
                       (map (fn [[attribute {:keys [data] :as value}]]

@@ -223,6 +223,17 @@
   (assert (<= max-depth max-computation-depth) tracker)
   (assert (<= (- (System/currentTimeMillis) start-time) max-duration) tracker))
 
+(defn wrap-throwable [step args side-effect? f t]
+  (if side-effect?
+    (Exception. (format "SEPL failure occured in step %s (side-effect:%s args:%s)" step f args) t)
+    (Exception. (format "SEPL failure occured in step %s (process:%s, args:%s)" step f args) t)))
+
+(defn verbosely-fail [step args side-effect? f]
+  (fn [& args]
+    (try (apply f args)
+         (catch Throwable t
+           (throw (wrap-throwable step args side-effect? f t))))))
+
 ;trigger => [type, args]
 ;side-effect [state, args] => outcome (pull data from state / calc new state; ie read/write)
 ;process [args, outcome] => triggers
@@ -257,7 +268,8 @@
                      state
                      (let [{:keys [side-effect-fn process-fn]} (get flows type)
                            args' (->deser-args args)
-                           outcome (when side-effect-fn (side-effect-fn state args'))
+                           ->verbosely-fail (partial verbosely-fail type args)
+                           outcome (when side-effect-fn ((->verbosely-fail true side-effect-fn) state args'))
                            chan? (instance? ManyToManyChannel outcome)
                            outcome' (cond-> outcome
                                             (and chan? async?) (async/<!)
@@ -265,7 +277,7 @@
                        (if (instance? Throwable outcome')
                          (throw outcome')
                          (let [triggers' (if process-fn
-                                           (-> (process-fn args' outcome')
+                                           (-> ((->verbosely-fail false process-fn) args' outcome')
                                                (add-triggers more-triggers trigger ->ser-args))
                                            more-triggers)
                                state' (if process-fn state outcome')
@@ -294,7 +306,8 @@
                (async/close! out)
                (let [{:keys [side-effect-fn process-fn]} (get flows type)
                      args' (->deser-args args)
-                     outcome (when side-effect-fn (side-effect-fn state args'))
+                     ->verbosely-fail (partial verbosely-fail type args)
+                     outcome (when side-effect-fn ((->verbosely-fail true side-effect-fn) state args'))
                      chan? (instance? ManyToManyChannel outcome)
                      outcome' (cond-> outcome
                                       (and chan? async?) (async/<!)
@@ -302,7 +315,7 @@
                  (if (instance? Throwable outcome')
                    (safely-put-n-close! out outcome')
                    (let [triggers' (if process-fn
-                                     (-> (process-fn args' outcome')
+                                     (-> ((->verbosely-fail false process-fn) args' outcome')
                                          (add-triggers more-triggers trigger ->ser-args))
                                      more-triggers)
                          state' (if process-fn state outcome')
@@ -335,7 +348,8 @@
             (when trigger
               (let [{:keys [side-effect-fn process-fn]} (get flows type)
                     args' (->deser-args args)
-                    outcome (when side-effect-fn (side-effect-fn state args'))
+                    ->verbosely-fail (partial verbosely-fail type args)
+                    outcome (when side-effect-fn ((->verbosely-fail true side-effect-fn) state args'))
                     state' (if process-fn state outcome)
                     tracker' (update-tracker tracker trigger)]
                 (let [next-steps (async-weaved-goo triggers state' tracker' outcome)]
@@ -345,11 +359,12 @@
           (async-weaved-foo [& args] (apply (async-weaver foo) args))
           (goo [[{:keys [type args] :as trigger} & more-triggers] state' tracker' outcome']
             (let [{:keys [process-fn]} (get flows type)
-                  args' (->deser-args args)]
+                  args' (->deser-args args)
+                  ->verbosely-fail (partial verbosely-fail type args)]
               (if (instance? Throwable outcome')
                 (throw outcome')
                 (let [triggers' (if process-fn
-                                  (-> (process-fn args' outcome')
+                                  (-> ((->verbosely-fail false process-fn) args' outcome')
                                       (add-triggers more-triggers trigger ->ser-args))
                                   more-triggers)]
                   (cons {:trigger             trigger
@@ -691,7 +706,10 @@
                                                                        {:side-effect-outcome %})))
                                              (let [outcome (if side-effect-outcome?
                                                              (:side-effect-outcome external-binding)
-                                                             (apply eval-fn sources-data))]
+                                                             (try (apply eval-fn sources-data)
+                                                                  (catch Throwable t
+                                                                    (throw (Exception. (format "eval-flow failed: eval-fn %s with args %s" eval-fn (into [] sources-data))
+                                                                                       t)))))]
                                                (timbre/info [node attribute-id] "-eval->" (clojure.core/type outcome))
                                                (if ref?
                                                  (let [metadata (meta-fn node)]
