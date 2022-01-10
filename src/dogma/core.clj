@@ -199,6 +199,7 @@
   ([type args] {:type type :args args})
   ([triggers type args] (conj triggers {:type type :args args})))
 (def ->step ->trigger)
+;todo deferred steps: add last?
 (defn add-triggers [new-triggers triggers {:keys [depth] :as source-trigger} ->ser-args]
   (->> new-triggers
        (map #(update % :args ->ser-args))

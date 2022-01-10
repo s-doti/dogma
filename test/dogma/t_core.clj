@@ -1597,9 +1597,12 @@
 (let [
       rand-0-1 #(rand-int 2)
       eye-color-genes-generator #(partition 2 (repeatedly rand-0-1))
-      inherit-eye-color (fn [& [genes]] (map first (take 2 (concat (filter some? genes) (eye-color-genes-generator)))))
+      inherit-eye-color (fn [& [genes]] (->> (eye-color-genes-generator)
+                                             (concat (filter some? genes))
+                                             (take 2)
+                                             (map first)))
       eye-color? #(when % (if (some pos? %) "brown" "blue"))
-      side? #(case % "M" "paternal" "F" "maternal" nil)
+      family-side? #(case % "M" "paternal" "F" "maternal" nil)
       nested-concat (partial apply concat)
 
       blueprints
@@ -1607,7 +1610,7 @@
        ;1 basic links
        :gen1/child           (->ref :gen2/parents)
        ;2 taking sides
-       :gen1/side            (->dynamic side? [[:gen1/child :gen2/gender]])
+       :gen1/family-side     (->dynamic family-side? [[:gen1/child :gen2/gender]])
        ;3 eye color
        :gen1/eye-color-genes (->on-boot (->dynamic inherit-eye-color []))
        :gen1/eye-color       (->dynamic eye-color? [[:gen1/eye-color-genes]])
